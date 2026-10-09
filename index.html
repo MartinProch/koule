@@ -188,7 +188,7 @@ const DEFAULTS = {
   mouth:1, mouthS:0.17, mouthY:-0.2,
   faceX:0, faceY:0, cheeks:false, faceColor:'#ffffff', glow:false,
   track:true, blink:true, breathe:true, bounce:false, sway:false, spin:false,
-  soft:0.7, sound:true, deco:true,
+  soft:0.7, sound:true, deco:true, puff:1.8,
   bg:'#f3f1ec', shadow:true, sx:1, sy:1, sz:1,
 };
 const S = { ...DEFAULTS };
@@ -824,6 +824,7 @@ function change(key, val) {
   if (key === 'color') {                                     // obličej si hlídá kontrast
     S.faceColor = lum(val) > 0.45 ? '#0a0a0c' : '#ffffff'; syncers.faceColor && syncers.faceColor();
   }
+  if (key === 'puff' && S.shape === 'vlastni') setShape('vlastni');   // nafouknutí = nová geometrie kresby
   if (key === 'shape') {
     setShape(val);
     const p = SHAPES[val].preset;
@@ -897,6 +898,7 @@ chips(s, 'shape', 'Zvířátka', Object.entries(SHAPES).filter(([, v]) => v.anim
   box.append(pen, mine); row.appendChild(box); s.appendChild(row);
   const prev = syncers.shape; syncers.shape = () => { prev(); mine.classList.toggle('on', S.shape === 'vlastni'); };
 }
+dep(() => S.shape === 'vlastni', slider(s, 'puff', 'Nafouknutí|Jak moc je nakreslený tvar nafouknutý', 0.6, 3, 0.05, v => v.toFixed(2)));
 const isAnimal = () => !!SHAPES[S.shape].animal;
 dep(isAnimal, ...toggles(s, [['deco', 'Čumáček a ouška|Čumáček, vousky a barevná ouška']]));
 
@@ -1183,17 +1185,29 @@ function shapeFromStrokes(list, face) {
 
 function radialShape(ext, gw, gh, face) {
   const N = gw * gh;
-  // vzdálenost od vnějšku (BFS) → nejhlubší bod tvaru = střed
-  const dist = new Int32Array(N).fill(-1), q = new Int32Array(N); let qh = 0, qt = 0;
-  for (let i = 0; i < N; i++) if (ext[i]) { dist[i] = 0; q[qt++] = i; }
-  let cx = gw / 2, cy = gh / 2, best = -1;
-  while (qh < qt) {
-    const i = q[qh++], x = i % gw, d = dist[i] + 1;
-    for (const j of [x > 0 ? i - 1 : -1, x < gw - 1 ? i + 1 : -1, i - gw, i + gw]) {
-      if (j < 0 || j >= N || dist[j] >= 0) continue;
-      dist[j] = d; q[qt++] = j; if (d > best) { best = d; cx = j % gw; cy = (j / gw) | 0; }
-    }
+  // vzdálenost od okraje (chamfer 3-4, skoro eukleidovská) → nejhlubší bod = střed; slouží i k nafouknutí
+  const dist = new Float32Array(N);
+  for (let i = 0; i < N; i++) dist[i] = ext[i] ? 0 : 1e9;
+  const relax = (i, j, w) => { if (dist[j] + w < dist[i]) dist[i] = dist[j] + w; };
+  for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+    const i = y * gw + x; if (!dist[i]) continue;
+    if (x > 0) relax(i, i - 1, 3); if (y > 0) { relax(i, i - gw, 3); if (x > 0) relax(i, i - gw - 1, 4); if (x < gw - 1) relax(i, i - gw + 1, 4); }
   }
+  for (let y = gh - 1; y >= 0; y--) for (let x = gw - 1; x >= 0; x--) {
+    const i = y * gw + x; if (!dist[i]) continue;
+    if (x < gw - 1) relax(i, i + 1, 3); if (y < gh - 1) { relax(i, i + gw, 3); if (x < gw - 1) relax(i, i + gw + 1, 4); if (x > 0) relax(i, i + gw - 1, 4); }
+  }
+  for (let pass = 0; pass < 3; pass++) for (const step of [1, gw]) {     // rozmazat, ať je nafouknutí oblé
+    const c = dist.slice();
+    for (let i = 0; i < N; i++) if (!ext[i]) { let sum = 0, n = 0; for (let o = -3; o <= 3; o++) { const j = i + o * step; if (j >= 0 && j < N) { sum += c[j]; n++; } } dist[i] = sum / n; }
+  }
+  let cx = gw / 2, cy = gh / 2, best = -1;
+  for (let i = 0; i < N; i++) if (dist[i] > best) { best = dist[i]; cx = i % gw; cy = (i / gw) | 0; }
+  const sampleDist = (gx, gy) => {                                      // bilineárně z mřížky
+    const x0 = Math.max(0, Math.min(gw - 2, Math.floor(gx))), y0 = Math.max(0, Math.min(gh - 2, Math.floor(gy)));
+    const tx = Math.max(0, Math.min(1, gx - x0)), ty = Math.max(0, Math.min(1, gy - y0)), i = y0 * gw + x0;
+    return (dist[i] * (1 - tx) + dist[i + 1] * tx) * (1 - ty) + (dist[i + gw] * (1 - tx) + dist[i + gw + 1] * tx) * ty;
+  };
   // pro každý úhel nejvzdálenější bod tvaru (úhel měřen s osou y nahoru)
   const B = 360, tab = new Float32Array(B), maxR = Math.hypot(gw, gh);
   for (let b = 0; b < B; b++) {
@@ -1211,6 +1225,7 @@ function radialShape(ext, gw, gh, face) {
   }
   let m = 0, bMax = 0; for (let i = 0; i < B; i++) if (tab[i] > m) { m = tab[i]; bMax = i; }
   const sc = 1.1 / m; for (let i = 0; i < B; i++) tab[i] *= sc;
+  const dMax = best / 3 * sc;
   const Rr = (phi) => {
     const a = (phi < 0 ? phi + Math.PI * 2 : phi) / (Math.PI * 2) * B - 0.5, i = Math.floor(a), t = a - i;
     return tab[(i + B) % B] * (1 - t) + tab[(i + 1 + B) % B] * t;
@@ -1228,7 +1243,16 @@ function radialShape(ext, gw, gh, face) {
   let dx = tx / rt, dy = ty / rt; const l = Math.hypot(dx, dy); if (l > 0.8) { dx *= 0.8 / l; dy *= 0.8 / l; }
   const fx = Math.asin(dx), fy = Math.asin(Math.max(-1, Math.min(1, dy / Math.cos(fx))));
   return {
-    f: (x, y, z) => { const r = Rr(Math.atan2(y, x)); return [x * r, y * r, z * 0.6]; },   // polštářek: obrys × tloušťka
+    // nafukovací hračka: tloušťka podle vzdálenosti od okraje kresby (kruh → koule), takže
+    // tělo je buclaté a tenké části (ocas, ploutve) zůstanou tenčí; S.puff = síla nafouknutí
+    f: (x, y, z) => {
+      const r = Rr(Math.atan2(y, x)), px = x * r, py = y * r;
+      const gx = cx + px / sc, gy = cy - py / sc, d = sampleDist(gx, gy) / 3 * sc;    // vzdálenost v jednotkách tvaru
+      // spodní mez = jemný polštářek (spojitý v každém směru); v tenkých cípech převáží on a nevzniknou „hřebínky“
+      const h = Math.max(0.24 * Math.abs(z), Math.sqrt(Math.max(0, d * (2 * dMax - d))));
+      const rim = Math.min(1, Math.abs(z) / 0.2);                       // na obrysu musí tloušťka klesnout k nule
+      return [px, py, Math.sign(z) * S.puff * h * rim * (2 - rim)];
+    },
     faceX: Math.max(-0.9, Math.min(0.9, fx)), faceY: Math.max(-0.7, Math.min(0.7, fy)),
   };
 }
