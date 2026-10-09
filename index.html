@@ -79,6 +79,7 @@
   .tgs { display:grid; grid-template-columns:1fr 1fr; gap:7px 16px; margin-top:8px; }
   .tg { display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer; font-size:12px; min-width:0; }
   .tg span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tgs > .tg:only-child { grid-column:1 / -1; }
   .tg input { display:none; }
   .tg i { width:28px; height:16px; border-radius:16px; background:var(--tgoff); position:relative; transition:.15s; flex:none; }
   .tg i::after { content:""; position:absolute; left:2px; top:2px; width:12px; height:12px; border-radius:50%; background:#fff; transition:.15s; box-shadow:0 1px 2px rgba(0,0,0,.3); }
@@ -157,7 +158,7 @@ const DEFAULTS = {
   mouth:1, mouthS:0.17, mouthY:-0.2,
   faceX:0, faceY:0, cheeks:false, faceColor:'#ffffff', glow:false,
   track:true, blink:true, breathe:true, bounce:false, sway:false, spin:false,
-  soft:0.7, sound:true,
+  soft:0.7, sound:true, deco:true,
   bg:'#f3f1ec', shadow:true, sx:1, sy:1, sz:1,
 };
 const S = { ...DEFAULTS };
@@ -191,6 +192,72 @@ const HEART = (() => {          // tabulka poloměru srdce podle úhlu (křivka 
   };
 })();
 
+/* ----- zvířátka: hlava + uši (+ čumák). Pro každý směr bereme nejvzdálenější průsečík
+   paprsku z počátku se sjednocením těles (hladce, přes smax). Vrací i štítky oblastí
+   [ucho, vnitřek ucha, čumák], podle kterých shader barví. ----- */
+const dot3 = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+const cross3 = (a, b) => [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]];
+const smax = (a, b, k) => { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.max(a, b) + h*h*k*0.25; };
+const sstep = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t*t*(3 - 2*t); };
+const headR = (x, y, z, s) => 1 / Math.hypot(x/s[0], y/s[1], z/s[2]);
+// elipsoid: střed c, hlavní osa axis, poloměry [do strany, podél osy, dopředu]
+function ellipsoid(c, axis, r, fwd = [0, 0, 1]) {
+  const v = norm3(axis), u = norm3(cross3(fwd, v)), w = cross3(v, u);
+  return { c, ax:[u, v, w], r };
+}
+// nejvzdálenější průsečík paprsku t·d s elipsoidem (0 = mine)
+function hitFar(d, e) {
+  let a = 0, b = 0, cc = -1;
+  for (let k = 0; k < 3; k++) { const dl = dot3(d, e.ax[k]) / e.r[k], cl = dot3(e.c, e.ax[k]) / e.r[k]; a += dl*dl; b += dl*cl; cc += cl*cl; }
+  const disc = b*b - a*cc; return disc > 0 ? (b + Math.sqrt(disc)) / a : 0;
+}
+// souřadnice bodu p v jednotkové soustavě elipsoidu (složka 2 = jak moc míří dopředu)
+const ellLocal = (p, e) => [0, 1, 2].map(k => dot3([p[0]-e.c[0], p[1]-e.c[1], p[2]-e.c[2]], e.ax[k]) / e.r[k]);
+
+const CAT = (() => { const v = norm3([0.5, 0.86, 0.06]), u = norm3(cross3([0, 0, 1], v)); return { v, u, w:cross3(v, u) }; })();
+function cat(x, y, z) {
+  const d = [Math.abs(x), y, z], h = headR(x, y, z, [1.1, 0.94, 0.96]);
+  let ear = 0, inner = 0; const dv = dot3(d, CAT.v);
+  if (dv > 0.3) {
+    const du = dot3(d, CAT.u), dw = dot3(d, CAT.w);
+    const rho = Math.hypot(du, dw * 2.6) / dv;                    // „úhel“ od osy ucha, ucho je zploštělé
+    ear = 1.62 * (1 - Math.sqrt(rho*rho + 0.004) / 0.95);           // kužel se zakulacenou špičkou
+    inner = sstep(0.0, 0.04, dw) * sstep(0.34, 0.2, Math.abs(du) / dv) * sstep(1.0, 1.18, ear / h);   // užší růžový střed, okraj zůstane v barvě
+  }
+  const r = smax(h, ear, 0.12);
+  return [x*r, y*r, z*r, 0, inner, 0];
+}
+
+const BEAR_EAR = ellipsoid(norm3([0.6, 0.76, 0.02]).map(c => c * 0.98), [0.6, 0.76, 0.02], [0.33, 0.27, 0.2]);
+const BEAR_SNOUT = ellipsoid([0, -0.27, 0.68], [0, 0, 1], [0.36, 0.38, 0.27], [0, 1, 0]);
+function bear(x, y, z) {
+  const d = [Math.abs(x), y, z], h = headR(x, y, z, [1.06, 0.97, 1]);
+  const e = hitFar(d, BEAR_EAR), s = hitFar(d, BEAR_SNOUT);
+  const r = smax(smax(h, e, 0.1), s, 0.14);
+  const isEar = sstep(-0.02, 0.03, e - h), isSnout = sstep(-0.03, 0.03, s - Math.max(h, e));
+  const inner = isEar * sstep(0.3, 0.6, ellLocal([d[0]*r, d[1]*r, d[2]*r], BEAR_EAR)[2]);
+  return [x*r, y*r, z*r, 0, inner, isSnout];
+}
+
+// psí ucho = plochý lalok přiléhající k hlavě a visící dolů (radiální „boule“ → vždy bez trhlin)
+const DOG_EAR = (() => {
+  const a = norm3([0.8, 0.12, 0.34]), v0 = [0.3, -1, 0.05];
+  const k = dot3(v0, a), v = norm3([v0[0] - k*a[0], v0[1] - k*a[1], v0[2] - k*a[2]]);
+  return { a, v, u:cross3(a, v) };
+})();
+const DOG_SNOUT = ellipsoid([0, -0.25, 0.7], [0, 0, 1], [0.34, 0.46, 0.27], [0, 1, 0]);
+function dog(x, y, z) {
+  const d = [Math.abs(x), y, z], h = headR(x, y, z, [1, 1, 1.02]), s = hitFar(d, DOG_SNOUT);
+  let ear = 0;
+  if (dot3(d, DOG_EAR.a) > 0) {
+    const along = dot3(d, DOG_EAR.v) - 0.12, side = dot3(d, DOG_EAR.u);
+    const wid = 0.2 + 0.09 * Math.max(0, along / 0.46);                // dole širší → tvar kapky
+    ear = Math.exp(-(Math.abs(along / 0.46) ** 3) - (Math.abs(side / wid) ** 3));   // plochý lalok s oblým okrajem
+  }
+  const r = smax(h + 0.13 * ear, s, 0.14);
+  return [x*r, y*r, z*r, sstep(0.25, 0.6, ear), 0, sstep(-0.03, 0.03, s - h)];
+}
+
 const SHAPES = {
   koule:   { label:'Koule',   f:(x,y,z) => [x, y, z] },
   vejce:   { label:'Vejce',   f:(x,y,z) => { const k = 0.92 - 0.17*y; return [x*k, y*1.2, z*k]; } },
@@ -208,6 +275,10 @@ const SHAPES = {
   jezek:   { label:'Ježek',   f:(x,y,z) => { let s = 0; for (const v of ICO) s += Math.exp(10*((x*v[0] + y*v[1] + z*v[2]) - 1)); const r = 0.6 + 0.55*s; return [x*r, y*r, z*r]; } },
   brambora:{ label:'Brambora',f:(x,y,z) => { const r = 1 + 0.12*Math.sin(3*x + 1) + 0.1*Math.sin(4*y + 2) + 0.1*Math.sin(3*z + 4); return [x*r*1.12, y*r*0.84, z*r*0.95]; } },
   fazole:  { label:'Fazole',  f:(x,y,z) => { const px = x*1.2; return [px, y*0.62 - 0.32*px*px + 0.15, z*0.62]; } },
+  // zvířátka: animal = druh čumáčku v shaderu, preset = barva a rozložení obličeje při výběru
+  kocka:   { label:'Kočka',    f:cat,  animal:1, preset:{ color:'#f28c38', mouth:6, mouthS:0.13, mouthY:-0.27, eyeY:0.1, spread:0.27 } },
+  pes:     { label:'Pes',      f:dog,  animal:2, preset:{ color:'#c98a4b', mouth:7, mouthS:0.15, mouthY:-0.33, eyeY:0.14, spread:0.24 } },
+  medvidek:{ label:'Medvídek', f:bear, animal:3, preset:{ color:'#8b5a2b', mouth:1, mouthS:0.12, mouthY:-0.33, eyeY:0.13, spread:0.25 } },
 };
 
 /* =====================================================================
@@ -243,12 +314,14 @@ const U = {
   uMouthStyle:{ value:1 }, uMouthS:{ value:0.17 }, uMouthY:{ value:-0.2 },
   uBrows:{ value:0 }, uBrowAng:{ value:0.3 }, uCheeks:{ value:0 }, uCheekX:{ value:0.4 },
   uHL:{ value:0 }, uGlow:{ value:0 }, uFaceOn:{ value:1 }, uFaceRot:{ value:new THREE.Matrix3() },
+  uAnimal:{ value:0 }, uTagMix:{ value:new THREE.Vector3() }, uEarCol:{ value:new THREE.Color() }, uInnerCol:{ value:new THREE.Color() },
+  uMuzzleCol:{ value:new THREE.Color() }, uNoseCol:{ value:new THREE.Color() },
 };
 
 const VERT_COMMON = `
-  attribute vec3 aPosB; attribute vec3 aNormB; attribute vec3 aDir;
+  attribute vec3 aPosB; attribute vec3 aNormB; attribute vec3 aDir; attribute vec3 aTagA; attribute vec3 aTagB;
   uniform vec3 uGrab; uniform vec3 uOff; uniform float uSigma; uniform float uMorph;
-  varying vec3 vDir;`;
+  varying vec3 vDir; varying vec3 vTag;`;
 const VERT_NORMAL = `
   vec3 mp = mix(position, aPosB, uMorph);
   vec3 mn = normalize(mix(normal, aNormB, uMorph));
@@ -256,7 +329,7 @@ const VERT_NORMAL = `
   float gw = exp(-dot(gd, gd) / (2.0 * uSigma * uSigma));
   vec3 gb = -gw * gd / (uSigma * uSigma);
   vec3 objectNormal = normalize(mn - gb * dot(uOff, mn) / max(0.25, 1.0 + dot(gb, uOff)));
-  vDir = aDir;`;
+  vDir = aDir; vTag = mix(aTagA, aTagB, uMorph);`;
 const VERT_BEGIN = `vec3 transformed = mp + uOff * gw;`;
 
 const FRAG_COMMON = `
@@ -267,11 +340,17 @@ const FRAG_COMMON = `
   uniform float uMouthStyle; uniform float uMouthS; uniform float uMouthY;
   uniform float uBrows; uniform float uBrowAng; uniform float uCheeks; uniform float uCheekX;
   uniform float uHL; uniform float uGlow; uniform float uFaceOn; uniform mat3 uFaceRot;
-  varying vec3 vDir;
+  uniform float uAnimal; uniform vec3 uTagMix; uniform vec3 uEarCol; uniform vec3 uInnerCol; uniform vec3 uMuzzleCol; uniform vec3 uNoseCol;
+  varying vec3 vDir; varying vec3 vTag;
   float gAA;
   float fillm(float d) { return 1.0 - smoothstep(-gAA, gAA, d); }
   float sdSeg(vec2 p, vec2 a, vec2 b) { vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * h); }
-  float sdArc(vec2 p, vec2 sc, float ra, float rb) { p.x = abs(p.x); return ((sc.y * p.x > sc.x * p.y) ? length(p - sc * ra) : abs(length(p) - ra)) - rb; }`;
+  float sdArc(vec2 p, vec2 sc, float ra, float rb) { p.x = abs(p.x); return ((sc.y * p.x > sc.x * p.y) ? length(p - sc * ra) : abs(length(p) - ra)) - rb; }
+  float sdTri(vec2 p, float r) {   // rovnostranný trojúhelník špičkou dolů
+    const float k = 1.7320508; p.y = -p.y; p.x = abs(p.x) - r; p.y = p.y + r / k;
+    if (p.x + k * p.y > 0.0) p = vec2(p.x - k * p.y, -k * p.x - p.y) / 2.0;
+    p.x -= clamp(p.x, -2.0 * r, 0.0); return -length(p) * sign(p.y);
+  }`;
 
 const FRAG_MAIN = `
   vec3 gGlowCol = vec3(0.0);
@@ -298,6 +377,10 @@ const FRAG_MAIN = `
       float t = dot(dir, vec3(sin(uGradAngle), cos(uGradAngle), 0.0));
       base = mix(base, uGradColor, smoothstep(uGradMid - uGradSoft, uGradMid + uGradSoft, t));
     }
+    // zvířecí oblasti z geometrie: tmavší uši, růžová ouška, světlý čumák
+    base = mix(base, uEarCol,    smoothstep(0.15, 0.85, vTag.x) * uTagMix.x);
+    base = mix(base, uInnerCol,  smoothstep(0.35, 0.65, vTag.y) * uTagMix.y);
+    base = mix(base, uMuzzleCol, smoothstep(0.35, 0.65, vTag.z) * uTagMix.z);
     vec3 col = base;
 
     // --- obličej ---
@@ -364,11 +447,31 @@ const FRAG_MAIN = `
     }
     float mouthM = fillm(md); dAll = min(dAll, md);
 
+    // --- čumáček a vousky zvířátek ---
+    float noseM = 0.0, whiskM = 0.0;
+    int an = int(uAnimal + 0.5);
+    if (an > 0) {
+      vec2 np = q - vec2(0.0, uMouthY + (an == 1 ? 0.075 : 0.12));
+      if (an == 1) noseM = fillm(sdTri(np, 0.034) - 0.014);
+      else if (an == 2) noseM = fillm(length(np / vec2(1.0, 0.7)) - 0.062);
+      else noseM = fillm(sdTri(np, 0.045) - 0.02);
+      if (an == 1) {
+        for (int i = 0; i < 3; i++) {
+          float o = float(i - 1);
+          vec2 w = vec2(abs(q.x), q.y - uMouthY - 0.05);
+          float wd = sdSeg(w, vec2(0.13, o * 0.025), vec2(0.4, o * 0.085 + 0.01)) - 0.006;
+          whiskM = max(whiskM, fillm(wd)); dAll = min(dAll, wd);
+        }
+      }
+    }
+
     col = mix(col, uCheek, cheekM * front);
     col = mix(col, uPupil, fillm(dAll - 0.014) * front * step(0.5, uPattern));   // kontrastní obrys jen když je zvolen vzor
     col = mix(col, uFace, max(browM, eyeM) * front);
     col = mix(col, uPupil, pupM * eyeM * front);
-    col = mix(col, uFace, mouthM * front);
+    col = mix(col, an >= 2 ? uNoseCol : uFace, mouthM * front);   // na světlém čumáku psa a medvídka tmavá pusa
+    col = mix(col, uFace, whiskM * front);
+    col = mix(col, uNoseCol, noseM * front);
     col = mix(col, uCheek * 0.9 + vec3(0.05), tongueM * (ms == 2 ? mouthM : 1.0) * front);
     float feat = max(max(browM, eyeM), mouthM) * front;
 
@@ -397,7 +500,7 @@ material.onBeforeCompile = (sh) => {
     .replace('#include <color_fragment>', '#include <color_fragment>\n' + FRAG_MAIN)
     .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += gGlowCol;');
 };
-material.customProgramCacheKey = () => 'koule-v1';
+material.customProgramCacheKey = () => 'koule-v2';
 
 /* ----- geometrie + morfování tvarů ----- */
 const geo = new THREE.SphereGeometry(1, 160, 112);
@@ -408,12 +511,15 @@ const attrA = new THREE.BufferAttribute(new Float32Array(NV * 3), 3);
 const attrNA = new THREE.BufferAttribute(new Float32Array(NV * 3), 3);
 const attrB = new THREE.BufferAttribute(new Float32Array(NV * 3), 3);
 const attrNB = new THREE.BufferAttribute(new Float32Array(NV * 3), 3);
-for (const a of [attrA, attrNA, attrB, attrNB]) a.setUsage(THREE.DynamicDrawUsage);
+const attrTA = new THREE.BufferAttribute(new Float32Array(NV * 3), 3);   // štítky oblastí (ucho, vnitřek ucha, čumák)
+const attrTB = new THREE.BufferAttribute(new Float32Array(NV * 3), 3);
+for (const a of [attrA, attrNA, attrB, attrNB, attrTA, attrTB]) a.setUsage(THREE.DynamicDrawUsage);
+geo.setAttribute('aTagA', attrTA); geo.setAttribute('aTagB', attrTB);
 geo.setAttribute('position', attrA); geo.setAttribute('normal', attrNA);
 geo.setAttribute('aPosB', attrB); geo.setAttribute('aNormB', attrNB);
 
 function buildShape(fn) {
-  const pos = new Float32Array(NV * 3), nor = new Float32Array(NV * 3);
+  const pos = new Float32Array(NV * 3), nor = new Float32Array(NV * 3), tag = new Float32Array(NV * 3);
   let minY = 1e9; const e = 0.004;
   for (let i = 0; i < NV; i++) {
     const x = dirs[i*3], y = dirs[i*3+1], z = dirs[i*3+2];
@@ -428,16 +534,18 @@ function buildShape(fn) {
     if (Math.hypot(...n) < 1e-12) n = [x, y, z];
     n = norm3(n);
     if (n[0]*x + n[1]*y + n[2]*z < 0) n = [-n[0], -n[1], -n[2]];
-    pos.set(c, i*3); nor.set(n, i*3);
+    pos[i*3] = c[0]; pos[i*3+1] = c[1]; pos[i*3+2] = c[2]; nor.set(n, i*3);
+    tag[i*3] = c[3] || 0; tag[i*3+1] = c[4] || 0; tag[i*3+2] = c[5] || 0;
     if (c[1] < minY) minY = c[1];
   }
-  return { pos, nor, minY };
+  return { pos, nor, tag, minY };
 }
 
 let shapeNow = buildShape(SHAPES.koule.f);
 let minYFrom = shapeNow.minY, minYTo = shapeNow.minY;
 attrA.array.set(shapeNow.pos); attrNA.array.set(shapeNow.nor);
 attrB.array.set(shapeNow.pos); attrNB.array.set(shapeNow.nor);
+attrTA.array.set(shapeNow.tag); attrTB.array.set(shapeNow.tag);
 geo.computeBoundingSphere();
 
 let morphing = false, morphT = 1;
@@ -448,17 +556,18 @@ function setShape(name) {
     for (let i = 0; i < NV * 3; i++) {
       attrA.array[i] = attrA.array[i] * (1 - m) + attrB.array[i] * m;
       attrNA.array[i] = attrNA.array[i] * (1 - m) + attrNB.array[i] * m;
+      attrTA.array[i] = attrTA.array[i] * (1 - m) + attrTB.array[i] * m;
     }
     minYFrom = minYFrom * (1 - m) + minYTo * m;
   } else { minYFrom = minYTo; }
   const nxt = buildShape(SHAPES[name].f);
-  attrB.array.set(nxt.pos); attrNB.array.set(nxt.nor); minYTo = nxt.minY;
-  attrA.needsUpdate = attrNA.needsUpdate = attrB.needsUpdate = attrNB.needsUpdate = true;
+  attrB.array.set(nxt.pos); attrNB.array.set(nxt.nor); attrTB.array.set(nxt.tag); minYTo = nxt.minY;
+  attrA.needsUpdate = attrNA.needsUpdate = attrB.needsUpdate = attrNB.needsUpdate = attrTA.needsUpdate = attrTB.needsUpdate = true;
   U.uMorph.value = 0; morphT = 0; morphing = true;
 }
 function finishMorph() {
-  attrA.array.set(attrB.array); attrNA.array.set(attrNB.array);
-  attrA.needsUpdate = attrNA.needsUpdate = true;
+  attrA.array.set(attrB.array); attrNA.array.set(attrNB.array); attrTA.array.set(attrTB.array);
+  attrA.needsUpdate = attrNA.needsUpdate = attrTA.needsUpdate = true;
   U.uMorph.value = 0; minYFrom = minYTo; morphing = false;
   geo.computeBoundingSphere();
 }
@@ -520,6 +629,14 @@ function apply() {
   U.uMouthStyle.value = S.mouth; U.uMouthS.value = S.mouthS; U.uMouthY.value = S.mouthY;
   U.uCheeks.value = S.cheeks ? 1 : 0; U.uCheekX.value = S.spread + 0.2;
   U.uHL.value = S.highlights ? 1 : 0; U.uGlow.value = S.glow ? 1 : 0;
+  // zvířátka: barvy oblastí odvozené z barvy těla
+  const an = SHAPES[S.shape].animal || 0, deco = S.deco ? 1 : 0, L = lum(S.color), body = new THREE.Color(S.color);
+  U.uAnimal.value = an * deco;
+  U.uTagMix.value.set(deco, deco, deco);
+  U.uEarCol.value.copy(body).lerp(new THREE.Color(L < 0.12 ? '#ffffff' : '#2a1a17'), L < 0.12 ? 0.3 : 0.85);
+  U.uMuzzleCol.value.copy(body).lerp(new THREE.Color(L > 0.55 ? '#c9a27a' : '#fff4e6'), L > 0.55 ? 0.35 : 0.55);
+  U.uInnerCol.value.copy(an === 1 ? new THREE.Color('#ff9fb0') : U.uMuzzleCol.value);
+  U.uNoseCol.value.set(an === 1 ? '#ff7f93' : L < 0.12 ? S.faceColor : '#2a1a17');
   U.uSigma.value = S.soft;
   controls.autoRotate = S.spin;
   stage.style.background = S.bg;
@@ -528,7 +645,7 @@ function apply() {
   mode = S.mode;
   document.getElementById('mRot').classList.toggle('on', mode === 'rotate');
   document.getElementById('mPull').classList.toggle('on', mode === 'pull');
-  document.getElementById('hint').innerHTML = (mode === 'rotate'
+  document.getElementById('hint').innerHTML = (SHAPES[S.shape].animal ? 'ťukni na zvířátko · ' : '') + (mode === 'rotate'
     ? 'táhni = otáčení · kolečko = přiblížení'
     : 'chyť kouli a táhni · mimo kouli se otáčí scéna')
     + '<span class="keys"> · <kbd>mezerník</kbd> režim · <kbd>R</kbd> náhoda · <kbd>S</kbd> uložit · <kbd>M</kbd> zvuk</span>';
@@ -607,7 +724,58 @@ const sfx = (() => {
     rub.lp.frequency.setTargetAtTime(400 + len * 700, t, 0.05);
     if (!on) { const r = rub; rub = null; setTimeout(() => { r.o.stop(); r.o.disconnect(); }, 300); }
   }
-  return { squish, boing, pop, stretch };
+  // --- hlasy zvířátek: měkké „kreslené“ tóny (sinus / trojúhelník), bez šumu a chrapotu,
+  //     aby to dítě nevylekalo. voice() vrací délku v sekundách (kvůli otevřené puse). ---
+  const VOICE = 0.5;                              // celková hlasitost hlasů
+  function meow(a, dest, t, p) {                  // koťátko „mňau“: tón nahoru a zpátky, filtr otvírá „m“ → „ňau“
+    const len = 0.5;
+    const o = a.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(620 * p, t); o.frequency.exponentialRampToValueAtTime(980 * p, t + 0.16);
+    o.frequency.exponentialRampToValueAtTime(560 * p, t + len);
+    const vib = a.createOscillator(); vib.frequency.value = 7; const vg = a.createGain(); vg.gain.value = 14 * p;
+    vib.connect(vg).connect(o.frequency);
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 1.5;
+    lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(2600, t + 0.15); lp.frequency.exponentialRampToValueAtTime(1200, t + len);
+    const g = a.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(VOICE * 0.75, t + 0.06);
+    g.gain.setValueAtTime(VOICE * 0.75, t + 0.28); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    o.connect(lp).connect(g).connect(dest);
+    o.start(t); vib.start(t); o.stop(t + len + 0.05); vib.stop(t + len + 0.05);
+  }
+  function yip(a, dest, t, p) {                   // štěňátko „haf“: krátký sinus, rychle nahoru a dolů
+    const len = 0.14;
+    const o = a.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(520 * p, t); o.frequency.exponentialRampToValueAtTime(780 * p, t + 0.025);
+    o.frequency.exponentialRampToValueAtTime(380 * p, t + len);
+    const h = a.createOscillator(); h.type = 'triangle';           // tichý alikvót o oktávu výš dodá „barvu“
+    const g2 = a.createGain(); g2.gain.value = 0.25;
+    h.frequency.setValueAtTime(1040 * p, t); h.frequency.exponentialRampToValueAtTime(1560 * p, t + 0.025);
+    h.frequency.exponentialRampToValueAtTime(760 * p, t + len);
+    const g = a.createGain(); env(g, t, VOICE * 1.1, 0.008, len);
+    o.connect(g); h.connect(g2).connect(g); g.connect(dest);
+    o.start(t); h.start(t); o.stop(t + len + 0.05); h.stop(t + len + 0.05);
+  }
+  function hum(a, dest, t, p, f0) {               // medvídek „brum“: broukání jako melodie, žádné vrčení
+    const len = 0.32;
+    const o = a.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(f0 * 0.82 * p, t); o.frequency.exponentialRampToValueAtTime(f0 * p, t + 0.05);
+    o.frequency.exponentialRampToValueAtTime(f0 * 0.94 * p, t + len);
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1000; lp.Q.value = 0.8;
+    const g = a.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(VOICE * 0.6, t + 0.04);
+    g.gain.setValueAtTime(VOICE * 0.6, t + len * 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    o.connect(lp).connect(g).connect(dest);
+    o.start(t); o.stop(t + len + 0.05);
+  }
+  function voiceTo(a, dest, kind, t, p) {
+    if (kind === 1) { meow(a, dest, t, p); return 0.5; }
+    if (kind === 2) { yip(a, dest, t, p); yip(a, dest, t + 0.2, p * 1.08); return 0.36; }
+    if (kind === 3) { hum(a, dest, t, p, 330); hum(a, dest, t + 0.36, p, 277); return 0.7; }   // „brum-brum“ jako dvě noty (E a cis)
+    return 0;
+  }
+  function voice(kind) {
+    const a = ctx(); if (!a) return 0;
+    return voiceTo(a, out, kind, a.currentTime + 0.01, 0.94 + Math.random() * 0.12);   // pokaždé trochu jinak vysoko
+  }
+  return { squish, boing, pop, stretch, voice, voiceTo };
 })();
 
 /* =====================================================================
@@ -624,7 +792,12 @@ function change(key, val) {
   if (key === 'color') {                                     // obličej si hlídá kontrast
     S.faceColor = lum(val) > 0.45 ? '#0a0a0c' : '#ffffff'; syncers.faceColor && syncers.faceColor();
   }
-  if (key === 'shape') { setShape(val); sfx.pop(); }
+  if (key === 'shape') {
+    setShape(val);
+    const p = SHAPES[val].preset;
+    if (p) { Object.assign(S, p); S.faceColor = lum(S.color) > 0.45 ? '#0a0a0c' : '#ffffff'; syncAll(); speak(); }
+    else sfx.pop();
+  }
   syncers[key] && syncers[key]();                            // zvýraznění zvolené volby
   apply();
 }
@@ -638,7 +811,8 @@ function chips(parent, k, label, opts) {
   const box = el('div', 'chips'); const btns = [];
   opts.forEach(([v, t]) => { const [text, tip] = String(t).split('|'); const b = el('button', 'chip', text); if (tip) b.title = tip; b.onclick = () => change(k, v); box.appendChild(b); btns.push([v, b]); });
   row.appendChild(box); parent.appendChild(row);
-  syncers[k] = () => btns.forEach(([v, b]) => b.classList.toggle('on', v === S[k]));
+  const prev = syncers[k];                                   // víc řad čipů pro stejnou volbu
+  syncers[k] = () => { prev && prev(); btns.forEach(([v, b]) => b.classList.toggle('on', v === S[k])); };
   return row;
 }
 function swatches(parent, k, label, colors) {
@@ -679,7 +853,10 @@ const dep = (cond, ...rows) => rows.forEach(r => { r.classList.add('dep'); deps.
 const updateDeps = () => deps.forEach(([r, cond]) => r.classList.toggle('hide', !cond()));
 
 let s = section('Tvar');
-chips(s, 'shape', null, Object.entries(SHAPES).map(([k, v]) => [k, v.label]));
+chips(s, 'shape', null, Object.entries(SHAPES).filter(([, v]) => !v.animal).map(([k, v]) => [k, v.label]));
+chips(s, 'shape', 'Zvířátka', Object.entries(SHAPES).filter(([, v]) => v.animal).map(([k, v]) => [k, v.label]));
+const isAnimal = () => !!SHAPES[S.shape].animal;
+dep(isAnimal, ...toggles(s, [['deco', 'Čumáček a ouška|Čumáček, vousky a barevná ouška']]));
 
 s = section('Barva a povrch');
 swatches(s, 'color', 'Barva těla', BODY_COLORS);
@@ -815,6 +992,21 @@ canvas.addEventListener('pointermove', e => {
 const release = e => { if (!grabbed) return; grabbed = false; sfx.boing(Math.min(1, off.length() / 1.6)); want.set(0,0,0); controls.enabled = true; canvas.classList.remove('grabbing'); try { canvas.releasePointerCapture(e.pointerId); } catch {} };
 canvas.addEventListener('pointerup', release); canvas.addEventListener('pointercancel', release);
 
+/* ----- zvířátko promluví: zvuk + otevřená pusa + zachvění ----- */
+let talkUntil = 0;
+function speak() {
+  const an = SHAPES[S.shape].animal; if (!an) return;
+  talkUntil = T + (sfx.voice(an) || 0.5);
+}
+// ťuknutí (ne tažení) na zvířátko → ozve se
+let tap = null;
+canvas.addEventListener('pointerdown', e => { tap = { x:e.clientX, y:e.clientY, t:performance.now() }; }, true);
+canvas.addEventListener('pointerup', e => {
+  if (!tap || Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 6 || performance.now() - tap.t > 350) return;
+  setNdc(e); ball.updateMatrixWorld(); ray.setFromCamera(ndc, camera);
+  if (ray.intersectObject(ball).length) speak();
+});
+
 const look = new THREE.Vector2(), lookT = new THREE.Vector2();
 addEventListener('pointermove', e => {
   const r = stage.getBoundingClientRect();
@@ -845,6 +1037,9 @@ renderer.setAnimationLoop(now => {
 
   // animace tělesa
   let mx = 1, my = 1, mz = 1, jump = 0;
+  const talking = T < talkUntil, an = SHAPES[S.shape].animal || 0;
+  if (talking) { const k = Math.sin((talkUntil - T) * 24); my *= 1 + 0.035 * k; mx *= 1 - 0.018 * k; mz *= 1 - 0.018 * k; }
+  U.uMouthStyle.value = talking && S.mouth > 0 ? (an === 2 ? 2 : 4) : S.mouth;   // při hlasu otevřená pusa
   if (S.breathe) { const b = Math.sin(T * 2.1); my *= 1 + 0.025 * b; mx *= 1 - 0.012 * b; mz *= 1 - 0.012 * b; }
   if (S.bounce) {
     const p = Math.abs(Math.sin(T * 2.8)); jump = p * 0.75;
@@ -864,7 +1059,8 @@ renderer.setAnimationLoop(now => {
   U.uBlink.value = S.blink ? bl : 0;
   look.lerp(S.track ? lookT : new THREE.Vector2(), 1 - Math.pow(0.002, dt));
   U.uLook.value.copy(look).clampLength(0, 1);
-  tmpE.set(-(S.faceY + look.y * 0.3 * (S.track ? 1 : 0)), S.faceX + look.x * 0.4 * (S.track ? 1 : 0), 0);
+  const tk = S.track ? (SHAPES[S.shape].animal ? 0.3 : 1) : 0;   // u zvířátek obličej nesmí ujet z čumáku
+  tmpE.set(-(S.faceY + look.y * 0.3 * tk), S.faceX + look.x * 0.4 * tk, 0);
   tmpM4.makeRotationFromEuler(tmpE).invert(); U.uFaceRot.value.setFromMatrix4(tmpM4);
 
   // pružina natahování
