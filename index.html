@@ -9,10 +9,18 @@
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --paper:#fbfaf7; --ink:#15151a; --muted:#7c7b84; --line:#e4e1d9; --soft:#f1eee7;
+    --paper:#fbfaf7; --ink:#15151a; --muted:#7c7b84; --line:#e4e1d9; --line2:#bdb9ae; --soft:#f1eee7;
+    --card:#ffffff; --text2:#4b4a52; --tgoff:#d9d6cd;
     --accent:#ff4a1c; --r:10px;
     --display:"Bricolage Grotesque", "Helvetica Neue", sans-serif;
     --mono:"DM Mono", ui-monospace, Menlo, monospace;
+    color-scheme:light;
+  }
+  /* tmavý panel — zapíná se sám, když je pozadí scény tmavé */
+  :root[data-theme="dark"] {
+    --paper:#141418; --ink:#f3f1ec; --muted:#8a8993; --line:#2b2b32; --line2:#4a4a54; --soft:#1f1f25;
+    --card:#1c1c22; --text2:#bdbcc4; --tgoff:#3a3a43;
+    color-scheme:dark;
   }
   * { box-sizing:border-box; }
   html, body { margin:0; height:100%; overflow:hidden; color:var(--ink); font:13px/1.35 var(--display); background:var(--paper); }
@@ -24,54 +32,79 @@
   .badge { position:absolute; left:22px; top:20px; font:800 15px var(--display); letter-spacing:-.01em; mix-blend-mode:difference; color:#fff; pointer-events:none; }
   .badge small { font:400 11px var(--mono); opacity:.7; margin-left:8px; letter-spacing:.04em; }
 
-  .panel { background:var(--paper); border-left:1px solid var(--line); display:flex; flex-direction:column; min-height:0; }
-  .head { padding:18px 20px 14px; border-bottom:1px solid var(--line); }
-  .head h1 { margin:0 0 12px; font:800 26px/1 var(--display); letter-spacing:-.03em; }
+  .panel { background:var(--paper); color:var(--ink); border-left:1px solid var(--line); display:flex; flex-direction:column; min-height:0; transition:background .35s, color .35s, border-color .35s; }
+  .head { padding:14px 20px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; }
+  .head h1 { margin:0; font:800 24px/1 var(--display); letter-spacing:-.03em; }
+  .head .seg { flex:1; }
   .head h1 span { color:var(--accent); }
   .scroll { overflow-y:auto; flex:1; padding:4px 20px 12px; scrollbar-width:thin; }
-  details { border-bottom:1px solid var(--line); padding:12px 0 14px; }
+  details { border-bottom:1px solid var(--line); padding:10px 0 12px; }
   summary { list-style:none; cursor:pointer; display:flex; justify-content:space-between; align-items:center;
     font:500 11px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
   summary::-webkit-details-marker { display:none; }
   summary::after { content:"+"; font-size:15px; }
   details[open] > summary::after { content:"–"; }
-  details[open] > summary { margin-bottom:12px; color:var(--ink); }
-  .row { margin-top:12px; }
-  .row:first-of-type { margin-top:0; }
-  .lbl { display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px; color:#4b4a52; }
-  .lbl b { font:400 11px var(--mono); color:var(--muted); font-weight:400; }
+  details[open] > summary { margin-bottom:10px; color:var(--ink); }
+  summary:hover { color:var(--ink); }
 
-  .chips { display:flex; flex-wrap:wrap; gap:6px; }
-  .chip { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:999px; padding:6px 11px; font:inherit; cursor:pointer; transition:.12s; }
-  .chip:hover { border-color:#bdb9ae; }
-  .chip.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  /* řádek = popisek vlevo, ovládání vpravo */
+  .row { margin-top:8px; display:grid; grid-template-columns:92px 1fr; column-gap:10px; align-items:start; }
+  .row.full { grid-template-columns:1fr; }
+  .row.stack { grid-template-columns:1fr; row-gap:5px; }   /* čipy a barvy: popisek nad, ať se vejdou na řádek */
+  .row.stack .lbl { padding-top:0; }
+  .row.sl { grid-template-columns:92px 1fr 34px; align-items:center; }
+  details > .row:first-of-type, details > .tgs:first-of-type { margin-top:0; }
+  .lbl { font-size:12px; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-top:5px; }
+  .row.sl .lbl { padding-top:0; }
+  .row.sl b { font:400 11px var(--mono); color:var(--muted); text-align:right; }
+
+  .chips { display:flex; flex-wrap:wrap; gap:4px; }
+  .chip { border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:999px; padding:4px 8px; font:12px/1.35 var(--display); cursor:pointer; transition:.12s; }
+  .chip:hover { border-color:var(--line2); }
+  .chip.on { background:var(--ink); color:var(--paper); border-color:var(--ink); }
   .seg { display:grid; grid-template-columns:1fr 1fr; gap:3px; padding:3px; background:var(--soft); border-radius:var(--r); }
-  .seg button { border:0; background:none; padding:8px 0; border-radius:8px; font:600 12px var(--display); cursor:pointer; color:var(--muted); }
-  .seg button.on { background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.14); }
+  .seg button { border:0; background:none; padding:6px 0; border-radius:8px; font:600 12px var(--display); cursor:pointer; color:var(--muted); }
+  .seg button.on { background:var(--card); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.14); }
 
-  .sw { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-  .sw button { width:24px; height:24px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px var(--line); cursor:pointer; padding:0; }
+  .sw { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .sw button { width:20px; height:20px; border-radius:50%; border:2px solid var(--paper); box-shadow:0 0 0 1px var(--line2); cursor:pointer; padding:0; }
   .sw button.on { box-shadow:0 0 0 2px var(--ink); }
-  .sw input[type=color] { width:24px; height:24px; padding:0; border:0; background:none; border-radius:50%; cursor:pointer; }
+  .sw input[type=color] { width:20px; height:20px; padding:0; border:0; background:none; border-radius:50%; cursor:pointer; }
 
   input[type=range] { -webkit-appearance:none; appearance:none; width:100%; height:18px; background:none; margin:0; }
   input[type=range]::-webkit-slider-runnable-track { height:3px; border-radius:2px; background:var(--line); }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; margin-top:-6.5px; border-radius:50%; background:var(--ink); border:3px solid var(--paper); box-shadow:0 0 0 1px var(--ink); }
 
-  .tg { display:flex; justify-content:space-between; align-items:center; cursor:pointer; margin-top:10px; font-size:13px; }
+  /* přepínače ve dvou sloupcích */
+  .tgs { display:grid; grid-template-columns:1fr 1fr; gap:7px 16px; margin-top:8px; }
+  .tg { display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer; font-size:12px; min-width:0; }
+  .tg span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .tg input { display:none; }
-  .tg i { width:34px; height:20px; border-radius:20px; background:#d9d6cd; position:relative; transition:.15s; flex:none; }
-  .tg i::after { content:""; position:absolute; left:2px; top:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:.15s; box-shadow:0 1px 2px rgba(0,0,0,.3); }
+  .tg i { width:28px; height:16px; border-radius:16px; background:var(--tgoff); position:relative; transition:.15s; flex:none; }
+  .tg i::after { content:""; position:absolute; left:2px; top:2px; width:12px; height:12px; border-radius:50%; background:#fff; transition:.15s; box-shadow:0 1px 2px rgba(0,0,0,.3); }
   .tg input:checked + i { background:var(--accent); }
-  .tg input:checked + i::after { transform:translateX(14px); }
-  .tg:first-child { margin-top:0; }
+  .tg input:checked + i::after { transform:translateX(12px); }
 
-  .foot { padding:12px 20px 16px; border-top:1px solid var(--line); display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
-  .foot button { padding:9px 0; border-radius:var(--r); border:1px solid var(--line); background:#fff; font:600 12px var(--display); cursor:pointer; }
+  /* volby, které dávají smysl jen při zapnuté nadřazené volbě */
+  .dep { margin-left:2px; padding-left:10px; border-left:2px solid var(--line); animation:rise .28s cubic-bezier(.2,.8,.2,1) both; }
+  .tgs > .dep { margin-left:0; padding-left:0; border-left:0; }
+  .dep.hide { display:none; }
+  @keyframes rise { from { opacity:0; transform:translateY(-5px); } }
+
+  input[type=range]::-moz-range-track { height:3px; border-radius:2px; background:var(--line); }
+  input[type=range]::-moz-range-thumb { width:10px; height:10px; border-radius:50%; background:var(--ink); border:3px solid var(--paper); box-shadow:0 0 0 1px var(--ink); }
+  kbd { font:500 10px var(--mono); padding:1px 5px; border:1px solid currentColor; border-radius:4px; opacity:.75; }
+  .foot button kbd { margin-left:5px; border-color:currentColor; opacity:.55; }
+
+  .foot { padding:10px 20px 14px; border-top:1px solid var(--line); display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  .foot button { padding:8px 0; border-radius:var(--r); border:1px solid var(--line); background:var(--card); color:var(--ink); font:600 12px var(--display); cursor:pointer; }
   .foot button.main { background:var(--accent); color:#fff; border-color:var(--accent); }
   .foot button:hover { filter:brightness(.96); }
   #err { position:absolute; inset:0; display:none; place-items:center; text-align:center; padding:30px; color:var(--muted); }
 
+  .foot button { white-space:nowrap; }
+  @media (max-width:1100px), (pointer:coarse) { .hint .keys { display:none; } }
+  @media (max-width:820px), (pointer:coarse) { .foot kbd { display:none; } }
   @media (max-width:820px) {
     .app { grid-template-columns:1fr; grid-template-rows:55% 45%; }
     .panel { border-left:0; border-top:1px solid var(--line); }
@@ -89,13 +122,13 @@
   <aside class="panel">
     <div class="head">
       <h1>Koule<span>.</span></h1>
-      <div class="seg"><button id="mRot" class="on">Otáčet</button><button id="mPull">Natahovat</button></div>
+      <div class="seg"><button id="mRot" class="on" title="Mezerník přepíná režim">Otáčet</button><button id="mPull" title="Mezerník přepíná režim">Natahovat</button></div>
     </div>
     <div class="scroll" id="ui"></div>
     <div class="foot">
-      <button id="bRand" class="main">Náhoda</button>
-      <button id="bReset">Obnovit</button>
-      <button id="bPng">Uložit PNG</button>
+      <button id="bRand" class="main" title="Náhodná postavička (R)">Náhoda<kbd>R</kbd></button>
+      <button id="bReset" title="Vrátit výchozí nastavení">Obnovit</button>
+      <button id="bPng" title="Uložit obrázek (S)">Uložit PNG<kbd>S</kbd></button>
     </div>
   </aside>
 </div>
@@ -124,7 +157,7 @@ const DEFAULTS = {
   mouth:1, mouthS:0.17, mouthY:-0.2,
   faceX:0, faceY:0, cheeks:false, faceColor:'#ffffff', glow:false,
   track:true, blink:true, breathe:true, bounce:false, sway:false, spin:false,
-  soft:0.7,
+  soft:0.7, sound:true,
   bg:'#f3f1ec', shadow:true, sx:1, sy:1, sz:1,
 };
 const S = { ...DEFAULTS };
@@ -495,10 +528,87 @@ function apply() {
   mode = S.mode;
   document.getElementById('mRot').classList.toggle('on', mode === 'rotate');
   document.getElementById('mPull').classList.toggle('on', mode === 'pull');
-  document.getElementById('hint').textContent = mode === 'rotate'
+  document.getElementById('hint').innerHTML = (mode === 'rotate'
     ? 'táhni = otáčení · kolečko = přiblížení'
-    : 'chyť kouli a táhni · mimo kouli se otáčí scéna';
+    : 'chyť kouli a táhni · mimo kouli se otáčí scéna')
+    + '<span class="keys"> · <kbd>mezerník</kbd> režim · <kbd>R</kbd> náhoda · <kbd>S</kbd> uložit · <kbd>M</kbd> zvuk</span>';
+  document.documentElement.dataset.theme = lum(S.bg) < 0.25 ? 'dark' : 'light';
+  updateDeps();
 }
+
+/* =====================================================================
+   ZVUKY — vše syntetizované přes Web Audio, žádné soubory
+   ===================================================================== */
+const sfx = (() => {
+  let ac = null, out = null, noise = null, rub = null;
+  const ctx = () => {
+    if (!S.sound) return null;
+    if (!ac) {
+      try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; }
+      const comp = ac.createDynamicsCompressor(); comp.connect(ac.destination);
+      out = ac.createGain(); out.gain.value = 0.6; out.connect(comp);
+      noise = ac.createBuffer(1, ac.sampleRate * 0.4, ac.sampleRate);
+      const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    if (ac.state === 'suspended') ac.resume();
+    return ac;
+  };
+  const env = (g, t, peak, a, r) => { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + r); };
+
+  // mlasknutí při chycení: šum přes pásmovou propust klesající dolů + tupý „blob“
+  function squish(amt = 1) {
+    const a = ctx(); if (!a) return; const t = a.currentTime;
+    const n = a.createBufferSource(); n.buffer = noise;
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 5;
+    bp.frequency.setValueAtTime(1800, t); bp.frequency.exponentialRampToValueAtTime(260, t + 0.16);
+    const ng = a.createGain(); env(ng, t, 0.55 * amt, 0.008, 0.17);
+    n.connect(bp).connect(ng).connect(out); n.start(t); n.stop(t + 0.2);
+    const o = a.createOscillator(); o.frequency.setValueAtTime(240, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.13);
+    const og = a.createGain(); env(og, t, 0.4 * amt, 0.006, 0.14);
+    o.connect(og).connect(out); o.start(t); o.stop(t + 0.16);
+  }
+  // boing při puštění — výška a délka podle toho, jak moc bylo natažené
+  function boing(amt) {
+    const a = ctx(); if (!a || amt < 0.04) return; const t = a.currentTime, len = 0.35 + 0.5 * amt;
+    const o = a.createOscillator(); o.type = 'sine';
+    const f0 = 110 + 90 * amt;
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * (1.8 + amt), t + 0.04);
+    o.frequency.exponentialRampToValueAtTime(f0 * 0.9, t + len);
+    const lfo = a.createOscillator(); lfo.frequency.value = 9 + 5 * amt;
+    const lg = a.createGain(); lg.gain.setValueAtTime(f0 * 0.35, t); lg.gain.exponentialRampToValueAtTime(1, t + len);
+    lfo.connect(lg).connect(o.frequency);
+    const g = a.createGain(); env(g, t, 0.45 * Math.max(0.35, amt), 0.008, len);
+    o.connect(g).connect(out); o.start(t); lfo.start(t); o.stop(t + len + 0.05); lfo.stop(t + len + 0.05);
+    squish(0.35 * amt);
+  }
+  // pop při změně tvaru
+  function pop() {
+    const a = ctx(); if (!a) return; const t = a.currentTime;
+    const o = a.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(420, t); o.frequency.exponentialRampToValueAtTime(900, t + 0.07);
+    const g = a.createGain(); env(g, t, 0.22, 0.005, 0.1);
+    o.connect(g).connect(out); o.start(t); o.stop(t + 0.12);
+  }
+  // gumové vrzání během tahu — hraje jen při pohybu, výška roste s natažením
+  function stretch(active, len, speed) {
+    if (!ac || (!active && !rub)) return;
+    if (active && !rub && S.sound) {
+      const o = ac.createOscillator(); o.type = 'sawtooth';
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 9;
+      const g = ac.createGain(); g.gain.value = 0;
+      o.connect(lp).connect(g).connect(out); o.start();
+      rub = { o, lp, g };
+    }
+    if (!rub) return;
+    const t = ac.currentTime, on = active && S.sound;
+    const vol = on ? Math.min(0.09, Math.max(0, speed - 0.15) * 0.03) : 0;
+    rub.g.gain.setTargetAtTime(vol, t, 0.04);
+    rub.o.frequency.setTargetAtTime(70 + len * 90, t, 0.05);
+    rub.lp.frequency.setTargetAtTime(400 + len * 700, t, 0.05);
+    if (!on) { const r = rub; rub = null; setTimeout(() => { r.o.stop(); r.o.disconnect(); }, 300); }
+  }
+  return { squish, boing, pop, stretch };
+})();
 
 /* =====================================================================
    OVLÁDACÍ PANEL (generovaný ze schématu)
@@ -514,7 +624,7 @@ function change(key, val) {
   if (key === 'color') {                                     // obličej si hlídá kontrast
     S.faceColor = lum(val) > 0.45 ? '#0a0a0c' : '#ffffff'; syncers.faceColor && syncers.faceColor();
   }
-  if (key === 'shape') setShape(val);
+  if (key === 'shape') { setShape(val); sfx.pop(); }
   syncers[key] && syncers[key]();                            // zvýraznění zvolené volby
   apply();
 }
@@ -524,43 +634,64 @@ function section(title, open = true) {
   const d = el('details'); d.open = open; d.appendChild(el('summary', '', title)); ui.appendChild(d); return d;
 }
 function chips(parent, k, label, opts) {
-  const row = el('div', 'row'); if (label) row.appendChild(el('div', 'lbl', label));
+  const row = el('div', label ? 'row stack' : 'row full'); if (label) row.appendChild(lbl(label));
   const box = el('div', 'chips'); const btns = [];
-  opts.forEach(([v, t]) => { const b = el('button', 'chip', t); b.onclick = () => change(k, v); box.appendChild(b); btns.push([v, b]); });
+  opts.forEach(([v, t]) => { const [text, tip] = String(t).split('|'); const b = el('button', 'chip', text); if (tip) b.title = tip; b.onclick = () => change(k, v); box.appendChild(b); btns.push([v, b]); });
   row.appendChild(box); parent.appendChild(row);
   syncers[k] = () => btns.forEach(([v, b]) => b.classList.toggle('on', v === S[k]));
+  return row;
 }
 function swatches(parent, k, label, colors) {
-  const row = el('div', 'row'); if (label) row.appendChild(el('div', 'lbl', label));
+  const row = el('div', label ? 'row stack' : 'row full'); if (label) row.appendChild(lbl(label));
   const box = el('div', 'sw'); const btns = [];
-  colors.forEach(c => { const b = el('button'); b.style.background = c; b.onclick = () => change(k, c); box.appendChild(b); btns.push([c, b]); });
+  colors.forEach(c => { const b = el('button'); b.style.background = c; b.title = c; b.setAttribute('aria-label', (label || 'Barva') + ' ' + c); b.onclick = () => change(k, c); box.appendChild(b); btns.push([c, b]); });
   const inp = el('input'); inp.type = 'color'; inp.title = 'Vlastní barva'; inp.oninput = () => change(k, inp.value); box.appendChild(inp);
   row.appendChild(box); parent.appendChild(row);
   syncers[k] = () => { btns.forEach(([c, b]) => b.classList.toggle('on', c.toLowerCase() === String(S[k]).toLowerCase())); inp.value = S[k]; };
+  return row;
 }
 function slider(parent, k, label, min, max, step, fmt = v => v.toFixed(2)) {
-  const row = el('div', 'row'); const out = el('b'); const l = el('div', 'lbl', label + ' '); l.appendChild(out);
-  const inp = el('input'); Object.assign(inp, { type:'range', min, max, step, value:S[k] });
+  const row = el('div', 'row sl'); const out = el('b');
+  const inp = el('input'); Object.assign(inp, { type:'range', min, max, step, value:S[k] }); inp.setAttribute('aria-label', label);
   inp.oninput = () => change(k, +inp.value);
-  row.append(l, inp); parent.appendChild(row);
+  inp.ondblclick = () => change(k, DEFAULTS[k]);                // dvojklik = výchozí hodnota
+  row.append(lbl(label), inp, out); parent.appendChild(row);
   syncers[k] = () => { inp.value = S[k]; out.textContent = fmt(+S[k]); };
+  return row;
+}
+// popisek s titulkem (kdyby se nevešel celý)
+const lbl = (t) => { const [text, tip] = t.split('|'); const d = el('div', 'lbl', text); d.title = tip || text; return d; };
+// skupina přepínačů ve dvou sloupcích; vrací jednotlivé přepínače
+function toggles(parent, list) {
+  const box = el('div', 'tgs'); parent.appendChild(box);
+  return list.map(([k, label]) => toggle(box, k, label));
 }
 function toggle(parent, k, label) {
-  const lab = el('label', 'tg'); lab.appendChild(el('span', '', label));
+  const lab = el('label', 'tg'); const [text, tip] = label.split('|'); lab.title = tip || text; lab.appendChild(el('span', '', text));
   const inp = el('input'); inp.type = 'checkbox'; inp.onchange = () => change(k, inp.checked);
   lab.append(inp, el('i')); parent.appendChild(lab);
   syncers[k] = () => { inp.checked = !!S[k]; };
+  return lab;
 }
+// řádek se ukáže, jen když platí podmínka (např. vzor ≠ žádný)
+const deps = [];
+const dep = (cond, ...rows) => rows.forEach(r => { r.classList.add('dep'); deps.push([r, cond]); });
+const updateDeps = () => deps.forEach(([r, cond]) => r.classList.toggle('hide', !cond()));
 
 let s = section('Tvar');
 chips(s, 'shape', null, Object.entries(SHAPES).map(([k, v]) => [k, v.label]));
 
 s = section('Barva a povrch');
 swatches(s, 'color', 'Barva těla', BODY_COLORS);
-toggle(s, 'grad', 'Barevný přechod');
+chips(s, 'finish', 'Povrch', [['plast','Plast|Lesklý plast'],['mat','Matný'],['guma','Guma'],['kov','Kov'],['perlet','Perleť']]);
+chips(s, 'pattern', 'Vzor', [[0,'Žádný'],[1,'Pruhy'],[2,'Tečky'],[3,'Kostky']]);
+dep(() => S.pattern > 0,
+  swatches(s, 'color2', 'Barva vzoru', ['#ffffff','#0a0a0c','#ff4a1c','#ffd400','#2f6bff','#2fbf71']),
+  slider(s, 'patScale', 'Hustota vzoru', 2, 16, 0.5, v => v.toFixed(1)));
+toggles(s, [['grad', 'Barevný přechod'], ['highlights', 'Bílé odlesky|Bílé odlesky z předlohy']]);
 {
   const GRADS = [['Západ slunce','#ff4a1c','#ffd400'],['Oceán','#2f6bff','#2fd6c4'],['Cukrová vata','#ff6fae','#8a4dff'],['Les','#1f8f4e','#d6f24a'],['Noc','#0a0a0c','#2f6bff']];
-  const row = el('div', 'row'); row.appendChild(el('div', 'lbl', 'Hotové přechody'));
+  const row = el('div', 'row stack'); row.appendChild(lbl('Hotové přechody'));
   const box = el('div', 'chips');
   GRADS.forEach(([t, a, b]) => {
     const btn = el('button', 'chip', t);
@@ -569,46 +700,41 @@ toggle(s, 'grad', 'Barevný přechod');
   });
   row.appendChild(box); s.appendChild(row);
 }
-swatches(s, 'gradColor', 'Druhá barva přechodu', BODY_COLORS);
-slider(s, 'gradAngle', 'Směr přechodu', 0, 360, 5, v => v.toFixed(0) + '°');
-slider(s, 'gradMid', 'Posun středu', -0.9, 0.9, 0.02);
-slider(s, 'gradSoft', 'Měkkost přechodu', 0.05, 1.5, 0.05);
-chips(s, 'pattern', 'Vzor', [[0,'Žádný'],[1,'Pruhy'],[2,'Tečky'],[3,'Kostky']]);
-swatches(s, 'color2', 'Druhá barva vzoru', ['#ffffff','#0a0a0c','#ff4a1c','#ffd400','#2f6bff','#2fbf71']);
-slider(s, 'patScale', 'Hustota vzoru', 2, 16, 0.5, v => v.toFixed(1));
-chips(s, 'finish', 'Povrch', [['plast','Lesklý plast'],['mat','Matný'],['guma','Guma'],['kov','Kov'],['perlet','Perleť']]);
-toggle(s, 'highlights', 'Bílé odlesky z předlohy');
+dep(() => S.grad,
+  swatches(s, 'gradColor', 'Druhá barva|Druhá barva přechodu', BODY_COLORS),
+  slider(s, 'gradAngle', 'Směr|Směr přechodu', 0, 360, 5, v => v.toFixed(0) + '°'),
+  slider(s, 'gradMid', 'Střed|Posun středu přechodu', -0.9, 0.9, 0.02),
+  slider(s, 'gradSoft', 'Měkkost|Měkkost přechodu', 0.05, 1.5, 0.05));
 
 s = section('Obličej');
-toggle(s, 'face', 'Zobrazit obličej');
-slider(s, 'eyes', 'Počet očí', 0, 8, 1, v => v.toFixed(0));
-chips(s, 'eyeStyle', 'Styl očí', [[0,'Tečky'],[1,'Pilulky'],[2,'Kolečka'],[3,'Spokojené'],[4,'Čárky']]);
-slider(s, 'eyeSize', 'Velikost očí', 0.03, 0.14, 0.005, v => v.toFixed(3));
-slider(s, 'spread', 'Rozestup očí', 0.1, 0.5, 0.01);
-slider(s, 'eyeY', 'Výška očí', -0.1, 0.5, 0.01);
-toggle(s, 'brows', 'Obočí');
-slider(s, 'browAng', 'Sklon obočí (zlobivé ←→ smutné)', -0.7, 0.7, 0.02);
-chips(s, 'mouth', 'Ústa', [[0,'Žádná'],[1,'Úsměv'],[2,'Dokořán'],[3,'Smutek'],[4,'Překvapení'],[5,'Rovná'],[6,'Kočička'],[7,'Jazyk']]);
-slider(s, 'mouthS', 'Velikost úst', 0.06, 0.32, 0.005, v => v.toFixed(3));
-slider(s, 'mouthY', 'Výška úst', -0.6, 0.0, 0.01);
-slider(s, 'faceX', 'Obličej doleva / doprava', -0.9, 0.9, 0.01);
-slider(s, 'faceY', 'Obličej dolů / nahoru', -0.7, 0.7, 0.01);
-toggle(s, 'cheeks', 'Růžové tváře');
-toggle(s, 'glow', 'Svítící obličej');
-swatches(s, 'faceColor', 'Barva obličeje', FACE_COLORS);
+const hasEyes = () => S.face && S.eyes > 0;
+const [, tBrows, ...tFace] = toggles(s, [['face', 'Obličej|Zobrazit obličej'], ['brows', 'Obočí'], ['cheeks', 'Tváře|Růžové tváře'], ['glow', 'Svítí|Svítící obličej']]);
+dep(hasEyes, tBrows); dep(() => S.face, ...tFace);
+dep(() => S.face, slider(s, 'eyes', 'Počet očí', 0, 8, 1, v => v.toFixed(0)));
+dep(hasEyes,
+  chips(s, 'eyeStyle', 'Styl očí', [[0,'Tečky'],[1,'Pilulky'],[2,'Kolečka'],[3,'Spokojené'],[4,'Čárky']]),
+  slider(s, 'eyeSize', 'Velikost očí', 0.03, 0.14, 0.005, v => v.toFixed(3)),
+  slider(s, 'spread', 'Rozestup očí', 0.1, 0.5, 0.01),
+  slider(s, 'eyeY', 'Výška očí', -0.1, 0.5, 0.01));
+dep(() => hasEyes() && S.brows, slider(s, 'browAng', 'Sklon obočí|Sklon obočí: vlevo zlobivé, vpravo smutné', -0.7, 0.7, 0.02));
+dep(() => S.face, chips(s, 'mouth', 'Ústa', [[0,'Žádná'],[1,'Úsměv'],[2,'Dokořán'],[3,'Smutek'],[4,'Překvapení'],[5,'Rovná'],[6,'Kočička'],[7,'Jazyk']]));
+dep(() => S.face && S.mouth > 0,
+  slider(s, 'mouthS', 'Velikost úst', 0.06, 0.32, 0.005, v => v.toFixed(3)),
+  slider(s, 'mouthY', 'Výška úst', -0.6, 0.0, 0.01));
+dep(() => S.face,
+  slider(s, 'faceX', 'Obličej ↔|Posun obličeje doleva / doprava', -0.9, 0.9, 0.01),
+  slider(s, 'faceY', 'Obličej ↕|Posun obličeje dolů / nahoru', -0.7, 0.7, 0.01),
+  swatches(s, 'faceColor', 'Barva tváře|Barva obličeje', FACE_COLORS));
 
 s = section('Pohyb');
-toggle(s, 'track', 'Oči sledují myš');
-toggle(s, 'blink', 'Mrkání');
-toggle(s, 'breathe', 'Dýchání');
-toggle(s, 'bounce', 'Poskakování');
-toggle(s, 'sway', 'Houpání');
-toggle(s, 'spin', 'Točit sám dokola');
-slider(s, 'soft', 'Měkkost při natahování', 0.3, 1.4, 0.02);
+const [tTrack, tBlink] = toggles(s, [['track', 'Sleduje myš|Oči sledují myš'], ['blink', 'Mrkání'], ['breathe', 'Dýchání'], ['bounce', 'Poskakování'],
+  ['sway', 'Houpání'], ['spin', 'Točí se|Točit sám dokola'], ['sound', 'Zvuky|Zvuky při natahování (M)']]);
+dep(hasEyes, tTrack, tBlink);
+slider(s, 'soft', 'Měkkost gumy|Měkkost při natahování', 0.3, 1.4, 0.02);
 
 s = section('Scéna a rozměry');
 swatches(s, 'bg', 'Pozadí', BG_COLORS);
-toggle(s, 'shadow', 'Stín pod koulí');
+toggles(s, [['shadow', 'Stín|Stín pod koulí']]);
 slider(s, 'sx', 'Šířka', 0.4, 2.2, 0.01);
 slider(s, 'sy', 'Výška', 0.4, 2.2, 0.01);
 slider(s, 'sz', 'Hloubka', 0.4, 2.2, 0.01);
@@ -636,12 +762,27 @@ document.getElementById('bRand').onclick = () => {
   });
   const next = rand(Object.keys(SHAPES)); const changed = next !== S.shape; S.shape = next;
   if (changed) setShape(next);
+  sfx.pop();
   syncAll(); apply();
 };
 document.getElementById('bPng').onclick = () => {
   renderer.render(scene, camera);
   canvas.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'koule.png'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); });
 };
+
+/* ----- klávesové zkratky ----- */
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+  const t = e.target;
+  if (t.tagName === 'INPUT' && t.type !== 'checkbox') return;   // posuvníky a výběr barvy mají vlastní klávesy
+  const k = e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); t.blur && t.blur(); change('mode', S.mode === 'rotate' ? 'pull' : 'rotate'); }
+  else if (k === 'r') document.getElementById('bRand').click();
+  else if (k === 's') { e.preventDefault(); document.getElementById('bPng').click(); }
+  else if (k === 'm') change('sound', !S.sound);
+});
+// mezerník na zaměřeném tlačítku by ho jinak „klikl“ při puštění klávesy
+addEventListener('keyup', e => { if (e.key === ' ' && e.target.tagName === 'BUTTON') e.preventDefault(); });
 
 /* =====================================================================
    INTERAKCE: otáčení / tažení jako guma
@@ -662,6 +803,7 @@ canvas.addEventListener('pointerdown', e => {
   U.uGrab.value.copy(ball.worldToLocal(hit.point.clone()));
   off.set(0,0,0); vel.set(0,0,0); want.set(0,0,0);
   grabPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()).negate(), grabWorld);
+  sfx.squish();
 }, true);
 canvas.addEventListener('pointermove', e => {
   if (!grabbed) return;
@@ -670,7 +812,7 @@ canvas.addEventListener('pointermove', e => {
   want.copy(p).sub(grabWorld).applyQuaternion(ball.quaternion.clone().invert()).divide(ball.scale);
   if (want.length() > 2.6) want.setLength(2.6);
 });
-const release = e => { if (!grabbed) return; grabbed = false; want.set(0,0,0); controls.enabled = true; canvas.classList.remove('grabbing'); try { canvas.releasePointerCapture(e.pointerId); } catch {} };
+const release = e => { if (!grabbed) return; grabbed = false; sfx.boing(Math.min(1, off.length() / 1.6)); want.set(0,0,0); controls.enabled = true; canvas.classList.remove('grabbing'); try { canvas.releasePointerCapture(e.pointerId); } catch {} };
 canvas.addEventListener('pointerup', release); canvas.addEventListener('pointercancel', release);
 
 const look = new THREE.Vector2(), lookT = new THREE.Vector2();
@@ -692,7 +834,7 @@ new ResizeObserver(resize).observe(stage); resize();
 
 const tmpE = new THREE.Euler(), tmpM4 = new THREE.Matrix4();
 let last = performance.now(), T = 0, nextBlink = 2, blinkAt = -1;
-const animMul = new THREE.Vector3(1, 1, 1);
+const animMul = new THREE.Vector3(1, 1, 1), offW = new THREE.Vector3();
 
 renderer.setAnimationLoop(now => {
   const dt = Math.min(0.033, (now - last) / 1000); last = now; T += dt;
@@ -729,6 +871,14 @@ renderer.setAnimationLoop(now => {
   const k = grabbed ? 220 : 90, damp = grabbed ? 0.82 : 0.9;
   vel.addScaledVector(want.clone().sub(off), k * dt); vel.multiplyScalar(damp); off.addScaledVector(vel, dt * 6);
   U.uOff.value.copy(off);
+  sfx.stretch(grabbed, off.length(), vel.length());
+
+  // stín jde za nataženou částí: posun + protažení, tah dolů ho ztmaví
+  offW.copy(off).multiply(ball.scale).multiplyScalar(0.35);
+  shadow.position.set(offW.x, GROUND + 0.004, offW.z);
+  shadow.scale.x += Math.abs(offW.x) * 1.6;
+  shadow.scale.y += Math.abs(offW.z) * 1.6;
+  shadow.material.opacity *= THREE.MathUtils.clamp(1 - offW.y * 0.9, 0.35, 1.5);
 
   controls.update();
   renderer.render(scene, camera);
