@@ -101,6 +101,22 @@
   .foot button { padding:8px 0; border-radius:var(--r); border:1px solid var(--line); background:var(--card); color:var(--ink); font:600 12px var(--display); cursor:pointer; }
   .foot button.main { background:var(--accent); color:#fff; border-color:var(--accent); }
   .foot button:hover { filter:brightness(.96); }
+  /* kreslení vlastního tvaru: průsvitná plocha přes scénu */
+  .draw { position:absolute; inset:0; z-index:5; background:rgba(251,250,247,.62); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); animation:rise .25s ease both; }
+  :root[data-theme="dark"] .draw { background:rgba(20,20,24,.62); }
+  .draw[hidden] { display:none; }
+  .draw canvas { cursor:crosshair; }
+  .draw-ui { position:absolute; left:0; right:0; top:18px; display:flex; flex-direction:column; align-items:center; gap:10px; pointer-events:none; text-align:center; padding:0 16px; }
+  .draw-ui p { margin:0; font:700 18px/1.2 var(--display); letter-spacing:-.01em; color:var(--ink); }
+  .draw-ui small { font:11px var(--mono); color:var(--muted); letter-spacing:.03em; }
+  .draw-ui small.bad { color:var(--accent); }
+  .draw-bar { position:absolute; left:0; right:0; bottom:18px; display:flex; flex-wrap:wrap; justify-content:center; gap:6px; padding:0 12px; }
+  .draw-bar button { border:1px solid var(--line2); background:var(--card); color:var(--ink); border-radius:999px; padding:7px 13px; font:600 12px var(--display); cursor:pointer; }
+  .draw-bar button.main { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .draw-bar button.on { border-color:var(--accent); color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .draw-bar button:disabled { opacity:.4; cursor:default; }
+  .chip.pen { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .chip.pen:hover { filter:brightness(.95); }
   #err { position:absolute; inset:0; display:none; place-items:center; text-align:center; padding:30px; color:var(--muted); }
 
   .foot button { white-space:nowrap; }
@@ -118,6 +134,20 @@
     <canvas id="c"></canvas>
     <div class="badge">Koule Studio<small>WebGL</small></div>
     <div class="hint" id="hint"></div>
+    <div class="draw" id="draw" hidden>
+      <canvas id="dc"></canvas>
+      <div class="draw-ui">
+        <p>Nakresli obrys</p>
+        <small id="dMsg">kresli tažením, klidně víc tahy · nebo klikej body, spojí se čarou · pak Hotovo</small>
+      </div>
+      <div class="draw-bar">
+        <button id="dUndo" title="Vrátit poslední tah (Z)">↶ Zpět</button>
+        <button id="dClear">Smazat</button>
+        <button id="dFace" title="Klikni do kresby, kam má přijít obličej">☺ Obličej sem</button>
+        <button id="dCancel" title="Esc">Zrušit</button>
+        <button id="dDone" class="main" title="Enter">Hotovo ✓</button>
+      </div>
+    </div>
     <div id="err">Nepodařilo se načíst WebGL nebo knihovnu three.js (potřebuje internet).</div>
   </div>
   <aside class="panel">
@@ -276,6 +306,7 @@ const SHAPES = {
   brambora:{ label:'Brambora',f:(x,y,z) => { const r = 1 + 0.12*Math.sin(3*x + 1) + 0.1*Math.sin(4*y + 2) + 0.1*Math.sin(3*z + 4); return [x*r*1.12, y*r*0.84, z*r*0.95]; } },
   fazole:  { label:'Fazole',  f:(x,y,z) => { const px = x*1.2; return [px, y*0.62 - 0.32*px*px + 0.15, z*0.62]; } },
   // zvířátka: animal = druh čumáčku v shaderu, preset = barva a rozložení obličeje při výběru
+  vlastni: { label:'Můj tvar', f:(x,y,z) => [x, y, z], custom:true },
   kocka:   { label:'Kočka',    f:cat,  animal:1, preset:{ color:'#f28c38', mouth:6, mouthS:0.13, mouthY:-0.27, eyeY:0.1, spread:0.27 } },
   pes:     { label:'Pes',      f:dog,  animal:2, preset:{ color:'#c98a4b', mouth:7, mouthS:0.15, mouthY:-0.33, eyeY:0.14, spread:0.24 } },
   medvidek:{ label:'Medvídek', f:bear, animal:3, preset:{ color:'#8b5a2b', mouth:1, mouthS:0.12, mouthY:-0.33, eyeY:0.13, spread:0.25 } },
@@ -788,6 +819,7 @@ const BG_COLORS = ['#f3f1ec','#ffffff','#d9d6cd','#ffe9a8','#cdeede','#d5e2ff','
 const FACE_COLORS = ['#ffffff','#0a0a0c','#ffd400','#ff4a1c','#2f6bff'];
 
 function change(key, val) {
+  const prev = S[key];
   S[key] = val;
   if (key === 'color') {                                     // obličej si hlídá kontrast
     S.faceColor = lum(val) > 0.45 ? '#0a0a0c' : '#ffffff'; syncers.faceColor && syncers.faceColor();
@@ -795,8 +827,9 @@ function change(key, val) {
   if (key === 'shape') {
     setShape(val);
     const p = SHAPES[val].preset;
-    if (p) { Object.assign(S, p); S.faceColor = lum(S.color) > 0.45 ? '#0a0a0c' : '#ffffff'; syncAll(); speak(); }
-    else sfx.pop();
+    if (p) { Object.assign(S, p); if (p.color) S.faceColor = lum(S.color) > 0.45 ? '#0a0a0c' : '#ffffff'; syncAll(); }
+    else if (prev === 'vlastni') { S.faceX = S.faceY = 0; syncAll(); }   // obličej posunutý ke „hlavě“ kresby patří jen jí
+    if (SHAPES[val].animal) speak(); else sfx.pop();
   }
   syncers[key] && syncers[key]();                            // zvýraznění zvolené volby
   apply();
@@ -853,8 +886,17 @@ const dep = (cond, ...rows) => rows.forEach(r => { r.classList.add('dep'); deps.
 const updateDeps = () => deps.forEach(([r, cond]) => r.classList.toggle('hide', !cond()));
 
 let s = section('Tvar');
-chips(s, 'shape', null, Object.entries(SHAPES).filter(([, v]) => !v.animal).map(([k, v]) => [k, v.label]));
+chips(s, 'shape', null, Object.entries(SHAPES).filter(([, v]) => !v.animal && !v.custom).map(([k, v]) => [k, v.label]));
 chips(s, 'shape', 'Zvířátka', Object.entries(SHAPES).filter(([, v]) => v.animal).map(([k, v]) => [k, v.label]));
+{
+  // řada „Vlastní tvar“: tlačítko Nakreslit + čip Můj tvar (objeví se po prvním nakreslení)
+  const row = el('div', 'row stack'); row.appendChild(lbl('Vlastní tvar'));
+  const box = el('div', 'chips');
+  const pen = el('button', 'chip pen', '✎ Nakreslit'); pen.title = 'Nakreslit vlastní tvar (D)'; pen.onclick = () => openDraw();
+  const mine = el('button', 'chip', 'Můj tvar'); mine.hidden = true; mine.id = 'chipMine'; mine.onclick = () => change('shape', 'vlastni');
+  box.append(pen, mine); row.appendChild(box); s.appendChild(row);
+  const prev = syncers.shape; syncers.shape = () => { prev(); mine.classList.toggle('on', S.shape === 'vlastni'); };
+}
 const isAnimal = () => !!SHAPES[S.shape].animal;
 dep(isAnimal, ...toggles(s, [['deco', 'Čumáček a ouška|Čumáček, vousky a barevná ouška']]));
 
@@ -937,7 +979,7 @@ document.getElementById('bRand').onclick = () => {
     mouth: rand([1,1,2,3,4,5,6,7]), cheeks: Math.random() < 0.4, glow: Math.random() < 0.2,
     bg: rand(BG_COLORS),
   });
-  const next = rand(Object.keys(SHAPES)); const changed = next !== S.shape; S.shape = next;
+  const next = rand(Object.keys(SHAPES).filter(k => !SHAPES[k].custom)); const changed = next !== S.shape; S.shape = next;
   if (changed) setShape(next);
   sfx.pop();
   syncAll(); apply();
@@ -949,7 +991,15 @@ document.getElementById('bPng').onclick = () => {
 
 /* ----- klávesové zkratky ----- */
 addEventListener('keydown', e => {
+  if (drawing && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); drawUndo(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+  if (drawing) {
+    if (e.key === 'Escape') closeDraw();
+    else if (e.key === 'Enter') { e.preventDefault(); drawDone(); }
+    else if (e.key === 'Backspace' || e.key.toLowerCase() === 'z') { e.preventDefault(); drawUndo(); }
+    return;
+  }
+  if (e.key.toLowerCase() === 'd' && e.target.tagName !== 'INPUT') { e.preventDefault(); openDraw(); return; }
   const t = e.target;
   if (t.tagName === 'INPUT' && t.type !== 'checkbox') return;   // posuvníky a výběr barvy mají vlastní klávesy
   const k = e.key.toLowerCase();
@@ -991,6 +1041,197 @@ canvas.addEventListener('pointermove', e => {
 });
 const release = e => { if (!grabbed) return; grabbed = false; sfx.boing(Math.min(1, off.length() / 1.6)); want.set(0,0,0); controls.enabled = true; canvas.classList.remove('grabbing'); try { canvas.releasePointerCapture(e.pointerId); } catch {} };
 canvas.addEventListener('pointerup', release); canvas.addEventListener('pointercancel', release);
+
+/* =====================================================================
+   KRESLENÍ VLASTNÍHO TVARU
+   Tahy (tažením i klikáním bodů) → obrázek kresby → vyplněná plocha → pro každý úhel
+   nejvzdálenější bod plochy → nafouknutý „polštářek“. Přes obrázek se zacelí i mezery mezi tahy.
+   ===================================================================== */
+const drawEl = document.getElementById('draw'), dc = document.getElementById('dc'), dg = dc.getContext('2d');
+const dMsg = document.getElementById('dMsg'), DMSG = dMsg.textContent, $d = id => document.getElementById(id);
+let drawing = false, strokes = [], cur = null, faceAt = null, faceTool = false, hover = null;
+
+const say = (t, bad = false) => { dMsg.textContent = t; dMsg.classList.toggle('bad', bad); };
+const setFaceTool = on => { faceTool = on; $d('dFace').classList.toggle('on', on); dc.style.cursor = on ? 'cell' : 'crosshair'; };
+function openDraw() {
+  drawing = true; drawEl.hidden = false; strokes = []; cur = null; faceAt = null; hover = null; setFaceTool(false); say(DMSG);
+  const r = drawEl.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);
+  dc.width = r.width * dpr; dc.height = r.height * dpr; dc.style.width = r.width + 'px'; dc.style.height = r.height + 'px';
+  dg.setTransform(dpr, 0, 0, dpr, 0, 0); paint();
+}
+function closeDraw() { drawing = false; drawEl.hidden = true; cur = null; }
+function drawUndo() {
+  const last = strokes[strokes.length - 1];
+  if (last && last.clicks && last.pts.length > 1) last.pts.pop();      // u klikání ubírej po bodech
+  else if (last) strokes.pop();
+  else faceAt = null;
+  say(DMSG); paint();
+}
+$d('dUndo').onclick = drawUndo;
+$d('dClear').onclick = () => { strokes = []; faceAt = null; say(DMSG); paint(); };
+$d('dFace').onclick = () => setFaceTool(!faceTool);
+$d('dCancel').onclick = closeDraw;
+$d('dDone').onclick = () => drawDone();
+
+function paint() {
+  const W = dc.clientWidth, H = dc.clientHeight, ink = getComputedStyle(document.documentElement).getPropertyValue('--accent');
+  dg.clearRect(0, 0, W, H);
+  dg.lineWidth = 5; dg.lineCap = dg.lineJoin = 'round'; dg.strokeStyle = dg.fillStyle = ink;
+  for (const st of strokes) {
+    dg.beginPath(); dg.moveTo(...st.pts[0]); for (const p of st.pts) dg.lineTo(...p); dg.stroke();
+    if (st.clicks) for (const p of st.pts) { dg.beginPath(); dg.arc(p[0], p[1], 5, 0, Math.PI * 2); dg.fill(); }
+  }
+  const last = strokes[strokes.length - 1];
+  if (last && last.clicks && hover && !faceTool) {                     // náhled další čáry při klikání
+    const q = last.pts[last.pts.length - 1];
+    dg.save(); dg.setLineDash([6, 8]); dg.lineWidth = 2; dg.beginPath(); dg.moveTo(...q); dg.lineTo(...hover); dg.stroke(); dg.restore();
+  }
+  if (faceAt) {                                                         // smajlík na místě obličeje
+    const [x, y] = faceAt; dg.save(); dg.lineWidth = 2.5; dg.strokeStyle = dg.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ink');
+    dg.beginPath(); dg.arc(x, y, 15, 0, Math.PI * 2); dg.stroke();
+    for (const sx of [-5, 5]) { dg.beginPath(); dg.arc(x + sx, y - 4, 2.2, 0, Math.PI * 2); dg.fill(); }
+    dg.beginPath(); dg.arc(x, y + 1, 7, 0.2 * Math.PI, 0.8 * Math.PI); dg.stroke(); dg.restore();
+  }
+  $d('dDone').disabled = !strokes.length;
+  $d('dUndo').disabled = !strokes.length && !faceAt;
+}
+
+const pos = e => { const r = dc.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+dc.addEventListener('pointerdown', e => {
+  const p = pos(e);
+  if (faceTool) { faceAt = p; setFaceTool(false); paint(); return; }
+  cur = { pts:[p], moved:false };
+  try { dc.setPointerCapture(e.pointerId); } catch {}
+});
+dc.addEventListener('pointermove', e => {
+  const p = pos(e);
+  if (!cur) { hover = p; const l = strokes[strokes.length - 1]; if (l && l.clicks) paint(); return; }
+  const q = cur.pts[cur.pts.length - 1];
+  if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 2) return;
+  cur.pts.push(p);
+  if (!cur.moved && Math.hypot(p[0] - cur.pts[0][0], p[1] - cur.pts[0][1]) > 4) { cur.moved = true; strokes.push(cur); }
+  if (cur.moved) paint();
+});
+dc.addEventListener('pointerup', () => {
+  if (!cur) return;
+  if (!cur.moved) {                                                     // klik = další bod lomené čáry
+    const last = strokes[strokes.length - 1], p = cur.pts[0];
+    if (last && last.clicks) last.pts.push(p); else strokes.push({ pts:[p], clicks:true });
+  }
+  cur = null; say(DMSG); paint();
+});
+dc.addEventListener('pointerleave', () => { hover = null; if (!cur) paint(); });
+
+function drawDone() {
+  if (!strokes.length) return;
+  const res = shapeFromStrokes(strokes, faceAt);
+  if (!res) { say('Obrys není uzavřený nebo je moc malý — dotáhni čáru k začátku, nebo nakresli větší tvar', true); return; }
+  SHAPES.vlastni.f = res.f;
+  SHAPES.vlastni.preset = { faceX:res.faceX, faceY:res.faceY };
+  $d('chipMine').hidden = false;
+  closeDraw(); change('shape', 'vlastni');
+}
+
+function shapeFromStrokes(list, face) {
+  const W = dc.clientWidth, H = dc.clientHeight, k = 320 / Math.max(W, H);
+  const gw = Math.ceil(W * k), gh = Math.ceil(H * k), N = gw * gh;
+  const oc = document.createElement('canvas'); oc.width = gw; oc.height = gh;
+  const g = oc.getContext('2d', { willReadFrequently:true });
+  // jediný tah, který končí blízko svého začátku, se uzavře; lomená čára z klikání vždy.
+  // (u víc tahů ne — jinak by se třeba samostatně nakreslený ocas uzavřel do vlastního tvaru)
+  const single = list.length === 1;
+  const paths = list.map(st => {
+    const P = st.pts; let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of P) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    const gap = Math.hypot(P[0][0] - P[P.length - 1][0], P[0][1] - P[P.length - 1][1]);
+    return { P, closed: st.clicks ? P.length >= 3 : single && gap < 0.45 * Math.hypot(x1 - x0, y1 - y0) };
+  });
+  // mosty: konec tahu se spojí s nejbližším koncem jiného tahu, pokud je blízko
+  const ends = []; paths.forEach(({ P, closed }, i) => { if (!closed) ends.push([P[0], i], [P[P.length - 1], i]); });
+  const bridges = [], near = 0.1 * Math.max(W, H);
+  for (const [p, i] of ends) {
+    let best = null, bd = near;
+    for (const [q, j] of ends) { if (j === i) continue; const d = Math.hypot(p[0] - q[0], p[1] - q[1]); if (d < bd) { bd = d; best = q; } }
+    if (best) bridges.push([p, best]);
+  }
+  let bestRes = null, bestHoles = 300;
+  for (const lw of [4, 10, 19]) {                    // čím dál silnější čára zacelí i zbylé mezery
+    g.clearRect(0, 0, gw, gh); g.lineWidth = lw; g.lineCap = g.lineJoin = 'round'; g.strokeStyle = g.fillStyle = '#000';
+    for (const { P, closed } of paths) {
+      g.beginPath();
+      if (P.length === 1) { g.arc(P[0][0] * k, P[0][1] * k, lw / 2, 0, Math.PI * 2); g.fill(); continue; }
+      g.moveTo(P[0][0] * k, P[0][1] * k); for (const [x, y] of P) g.lineTo(x * k, y * k);
+      if (closed) g.closePath(); g.stroke();
+    }
+    for (const [p, q] of bridges) { g.beginPath(); g.moveTo(p[0] * k, p[1] * k); g.lineTo(q[0] * k, q[1] * k); g.stroke(); }
+    const px = g.getImageData(0, 0, gw, gh).data, ink = new Uint8Array(N);
+    for (let i = 0; i < N; i++) ink[i] = px[i * 4 + 3] > 100;
+    // vnějšek = záplava od okrajů přes nepokreslené pixely; vše ostatní je tvar
+    const ext = new Uint8Array(N), q = new Int32Array(N); let qh = 0, qt = 0;
+    const seed = i => { if (!ink[i] && !ext[i]) { ext[i] = 1; q[qt++] = i; } };
+    for (let x = 0; x < gw; x++) { seed(x); seed((gh - 1) * gw + x); }
+    for (let y = 0; y < gh; y++) { seed(y * gw); seed(y * gw + gw - 1); }
+    while (qh < qt) {
+      const i = q[qh++], x = i % gw;
+      if (x > 0) seed(i - 1); if (x < gw - 1) seed(i + 1); if (i >= gw) seed(i - gw); if (i < N - gw) seed(i + gw);
+    }
+    let holes = 0; for (let i = 0; i < N; i++) if (!ext[i] && !ink[i]) holes++;
+    if (holes > bestHoles * 1.15) { bestHoles = holes; bestRes = ext; }   // vyhrává největší uzavřená plocha
+  }
+  return bestRes && radialShape(bestRes, gw, gh, face && [face[0] * k, face[1] * k]);
+}
+
+function radialShape(ext, gw, gh, face) {
+  const N = gw * gh;
+  // vzdálenost od vnějšku (BFS) → nejhlubší bod tvaru = střed
+  const dist = new Int32Array(N).fill(-1), q = new Int32Array(N); let qh = 0, qt = 0;
+  for (let i = 0; i < N; i++) if (ext[i]) { dist[i] = 0; q[qt++] = i; }
+  let cx = gw / 2, cy = gh / 2, best = -1;
+  while (qh < qt) {
+    const i = q[qh++], x = i % gw, d = dist[i] + 1;
+    for (const j of [x > 0 ? i - 1 : -1, x < gw - 1 ? i + 1 : -1, i - gw, i + gw]) {
+      if (j < 0 || j >= N || dist[j] >= 0) continue;
+      dist[j] = d; q[qt++] = j; if (d > best) { best = d; cx = j % gw; cy = (j / gw) | 0; }
+    }
+  }
+  // pro každý úhel nejvzdálenější bod tvaru (úhel měřen s osou y nahoru)
+  const B = 360, tab = new Float32Array(B), maxR = Math.hypot(gw, gh);
+  for (let b = 0; b < B; b++) {
+    const a = (b + 0.5) / B * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a); let last = 0;
+    for (let r = 0; r < maxR; r += 0.25) {
+      const x = Math.round(cx + ca * r), y = Math.round(cy - sa * r);
+      if (x < 0 || y < 0 || x >= gw || y >= gh) break;
+      if (!ext[y * gw + x]) last = r;
+    }
+    tab[b] = last;
+  }
+  for (let pass = 0; pass < 6; pass++) {                              // vyhlazení třesu ruky i schodů z mřížky
+    const c = tab.slice();
+    for (let i = 0; i < B; i++) tab[i] = (c[(i + B - 2) % B] + c[(i + B - 1) % B] + c[i] + c[(i + 1) % B] + c[(i + 2) % B]) / 5;
+  }
+  let m = 0, bMax = 0; for (let i = 0; i < B; i++) if (tab[i] > m) { m = tab[i]; bMax = i; }
+  const sc = 1.1 / m; for (let i = 0; i < B; i++) tab[i] *= sc;
+  const Rr = (phi) => {
+    const a = (phi < 0 ? phi + Math.PI * 2 : phi) / (Math.PI * 2) * B - 0.5, i = Math.floor(a), t = a - i;
+    return tab[(i + B) % B] * (1 - t) + tab[(i + 1 + B) % B] * t;
+  };
+  // obličej: kam ho dítě kliklo; jinak posunutý od středu ke „hlavě“ = proti nejdelšímu výběžku
+  // (u rybičky proti ocasu), jen vodorovně a tím víc, čím je tvar nesouměrnější
+  let tx, ty;
+  if (face) { tx = (face[0] - cx) * sc; ty = -(face[1] - cy) * sc; }
+  else {
+    const aMax = (bMax + 0.5) / B * Math.PI * 2, rOpp = tab[(bMax + B / 2) % B];
+    const shift = Math.max(0, (1.1 - rOpp) / 1.1) * rOpp * 0.9;
+    tx = -Math.sign(Math.cos(aMax)) * shift * Math.abs(Math.cos(aMax)); ty = 0;
+  }
+  const rt = Rr(Math.atan2(ty, tx)) || 1;
+  let dx = tx / rt, dy = ty / rt; const l = Math.hypot(dx, dy); if (l > 0.8) { dx *= 0.8 / l; dy *= 0.8 / l; }
+  const fx = Math.asin(dx), fy = Math.asin(Math.max(-1, Math.min(1, dy / Math.cos(fx))));
+  return {
+    f: (x, y, z) => { const r = Rr(Math.atan2(y, x)); return [x * r, y * r, z * 0.6]; },   // polštářek: obrys × tloušťka
+    faceX: Math.max(-0.9, Math.min(0.9, fx)), faceY: Math.max(-0.7, Math.min(0.7, fy)),
+  };
+}
 
 /* ----- zvířátko promluví: zvuk + otevřená pusa + zachvění ----- */
 let talkUntil = 0;
@@ -1059,7 +1300,7 @@ renderer.setAnimationLoop(now => {
   U.uBlink.value = S.blink ? bl : 0;
   look.lerp(S.track ? lookT : new THREE.Vector2(), 1 - Math.pow(0.002, dt));
   U.uLook.value.copy(look).clampLength(0, 1);
-  const tk = S.track ? (SHAPES[S.shape].animal ? 0.3 : 1) : 0;   // u zvířátek obličej nesmí ujet z čumáku
+  const tk = S.track ? (SHAPES[S.shape].animal || SHAPES[S.shape].custom ? 0.3 : 1) : 0;   // zvířátka: obličej nesmí ujet z čumáku; plochá kresba: ani z těla
   tmpE.set(-(S.faceY + look.y * 0.3 * tk), S.faceX + look.x * 0.4 * tk, 0);
   tmpM4.makeRotationFromEuler(tmpE).invert(); U.uFaceRot.value.setFromMatrix4(tmpM4);
 
